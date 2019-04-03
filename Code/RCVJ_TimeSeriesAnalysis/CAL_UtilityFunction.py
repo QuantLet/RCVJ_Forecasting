@@ -1,5 +1,5 @@
 from Code.GlobalParams import *
-from Code.RCVJ_TimeSeriesAnalysis.HAR_TCJ_Models import HARTCJ_OLS_Estimation as har_ols
+from Code.TimeSeriesAnalysis.HAR_TCJ_Models import HARTCJ_OLS_Estimation as har_ols
 import datetime as dt
 import matplotlib.pyplot as plt
 
@@ -7,12 +7,13 @@ import pandas as pd
 import numpy as np
 import pickle
 import itertools
+from Code.TimeSeriesAnalysis.dm_test import dm_test
 
 
 class CAL_UtilityFunction:
 
     def __init__(self, coin, freq, alpha, cv, rv_name, filter_jump, horizon, tz_lag, expect_excess_return, pred_split,
-                 split_date):
+                 split_date, loss_function):
         """
 
         :param coin:
@@ -39,6 +40,7 @@ class CAL_UtilityFunction:
             [rv_name, str(horizon), freq, filter_jump, pred_split, split_date.strftime('%Y%m%d')])
         print(f'TYPE: {self.type_name}')
         print(f'VERSION: {self.version_name}')
+        self.loss_function = loss_function
 
         # self.rolling_win_size = rolling_win_size
 
@@ -93,10 +95,48 @@ class CAL_UtilityFunction:
         self.uow_t['ru_true'] = true_ru
         self.uow = self.uow_t.mean()
 
+    def dm_test_realized_utility(self, base_model='HAR', plot_error=False):
+
+        self.uow_t.dropna(axis=0, inplace=True)
+        rv_base = self.uow_t[base_model]
+        rv_true = self.uow_t['ru_true']
+        diag_line = np.linspace(rv_base.min(), rv_base.max(), num=1000)
+
+        dm_ru_out_data = outdata_dir + f'dm_ru/{self.type_name}/'
+        dm_ru_out_plot = outplot_dir + f'dm_ru/{self.type_name}/'
+        os.makedirs(dm_ru_out_data, exist_ok=True)
+        os.makedirs(dm_ru_out_plot, exist_ok=True)
+
+        dm_results = pd.DataFrame(index=model_names, columns=['dm_test', 'p_value'])
+
+        for model in self.uow_t.columns:
+            print(model)
+            rv_test = self.uow_t[model]
+            # pred1_lst is the based prediction series, DM > 0 pred2_lst has smaller errors, vice versa
+            alter_rv = dm_test(actual_lst=rv_true.values, pred1_lst=rv_base.values, pred2_lst=rv_test.values, h=self.horizon,
+                               crit=self.loss_function, power=4)
+            print(f'DM:{alter_rv[0]}, p_value:{alter_rv[1]}')
+
+            dm_results.loc[model, 'dm_test'] = alter_rv[0]
+            dm_results.loc[model, 'p_value'] = alter_rv[1]
+
+            if plot_error:
+                plt.figure(figsize=(10, 10))
+                plt.plot(diag_line, diag_line)
+                plt.scatter(x=rv_base, y=rv_test)
+                plt.xlabel(f'{rv_base.name}', fontsize=15)
+                plt.ylabel(f'{rv_test.name}', fontsize=15)
+                plt.tight_layout()
+                plt.savefig(dm_ru_out_plot + f'{model}.png', dpi=300)
+                plt.close()
+
+        dm_results.to_csv(dm_ru_out_data + f'{self.version_name}_{base_model}_{self.loss_function}.csv')
+
     def save_results(self):
         uow_file_path = f'{self.utility_output_dir}/{self.version_name}'
         with open(uow_file_path + '.pkl', 'wb') as uow_t_file:
             pickle.dump(self.uow_t, uow_t_file)
+        self.uow_t.to_csv(uow_file_path + '_OT.csv')
         # self.uow = self.uow.to_frame()
         self.uow.to_csv(uow_file_path + '.csv')
 
@@ -110,13 +150,11 @@ def realized_utility(exp_exreturn, RV_exp, rv_t1):
     :param rv_t1: Realized volatility at day T+1
     :return:
     """
-    # RV_exp = RV_exp.shift(1)
     uow_df = pd.concat([RV_exp, rv_t1], axis=1, sort=True)
     uow_df.columns = ['rv_pred', 'rv_t1']
     uow_df.dropna(inplace=True)
     uow_t = exp_exreturn * np.divide(np.sqrt(uow_df['rv_t1']), np.sqrt(uow_df['rv_pred'])) - (
             exp_exreturn / 2) * np.divide(uow_df['rv_t1'], uow_df['rv_pred'])
-    # uow =uow_t.mean()
     return uow_t
 
 
@@ -189,6 +227,7 @@ def average_utility(weight_f_t1, rv_t, r_t, gamma, r_f):
     return average_utility
 
 
+
 def main_func():
     params = itertools.product(coins, freqs, cvs, rv_names, alphas, filter_jumps, horizons, expect_excess_returns)
     for coin, freq, cv, rv_name, alpha, filter_jump, horizon, expect_excess_return in params:
@@ -202,10 +241,16 @@ def main_func():
                                                tz_lag=0,
                                                expect_excess_return=expect_excess_return,
                                                pred_split='test',  # adjust as testing mode
-                                               split_date=split_date)
+                                               split_date=split_date,
+                                               loss_function='MSE')
         utility_estimate.preprocess_data()
         utility_estimate.calculate_realized_utility()  # Calculate realized utility
         utility_estimate.save_results()  # Save realized utility results
+        try:
+            utility_estimate.dm_test_realized_utility(base_model='HAR', plot_error=True)
+        except Exception as e:
+            print(e)
+
         uow_t = utility_estimate.uow_t
         uow = utility_estimate.uow
         print(uow_t)
@@ -219,7 +264,7 @@ def test_func():
     rv_name = 'Log_RV'
     filter_jump = 'AllJump'
     freq = freqs[0]
-    horizon = horizons[0]
+    horizon = horizons[2]
     alpha = alphas[0]
 
     utility_estimate = CAL_UtilityFunction(coin=coin_G,
@@ -231,11 +276,15 @@ def test_func():
                                            horizon=horizon,
                                            tz_lag=0,
                                            expect_excess_return=0.08,
-                                           pred_split='train',
-                                           split_date=dt.date(2018, 1, 1))
+                                           pred_split='test',
+                                           split_date=dt.date(2018, 1, 1),
+                                           loss_function='MSE')
 
     utility_estimate.preprocess_data()
 
+    # utility_estimate.calculate_realized_utility()
+    # ru_t = utility_estimate.ru_t.copy(deep=True)
+    # uow_t = utility_estimate.uow_t
     # utility_estimate.reg_df
     # utility_estimate.forecast_rv()
     utility_estimate.calculate_realized_utility()
