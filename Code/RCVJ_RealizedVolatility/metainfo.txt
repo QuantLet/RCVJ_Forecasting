@@ -1,0 +1,11 @@
+Name of Quantlet: RCVJ_RealizedVolatility
+
+Published in: Realized Cryptocurrencies Volatility Forecasting with Jumps
+
+Description: This quantlet includes two main code files. The first one named CAL_RV_BPV.py is the estimation of realized volatility, bipower volatility, threshold bipower volatility and separated jumps, threshold jumps. The second one named PLT_RV_BPV.py generates all related figures in the paper. Also some other auxiliary files that generate different statistics results.
+
+Keywords: Realized volatility, Bipower volatility, Threshold Jump, Local variation estimation, Cryptocurrencies, Global Market Indices, ACF
+
+Author: Junjie Hu
+
+Submitted: 03.04.2019

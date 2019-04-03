@@ -1,0 +1,11 @@
+Name of Quantlet: RCVJ_DataOperation
+
+Published in: Realized Cryptocurrencies Volatility Forecasting with Jumps
+
+Description: This quantlet includes mainly the data processing part for the RCVJ_Forecasting project. Read and write data, clean the old CRIX high frequency data and functions to retrieve data from DYOS.
+
+Keywords: Data Analysis, Data Processing, Cryptocurrency
+
+Author: Junjie Hu
+
+Submitted: 03.04.2019

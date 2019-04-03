@@ -43,3 +43,4 @@ main.pdf
 *.fmt
 *.watcher_pid
 .tm_properties
+__pycache__/
