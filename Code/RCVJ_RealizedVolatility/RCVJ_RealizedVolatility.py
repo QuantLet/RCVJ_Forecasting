@@ -10,7 +10,7 @@ CAL_RV_BPV.py
 import matplotlib as mpl
 
 mpl.use('TKAgg')
-from Code.RCVJ_DataOperation.IO_Funcs import read_coin_return
+from Code.DataOperation.IO_Funcs import read_coin_return
 import pandas as pd
 import datetime as dt
 import itertools
@@ -168,10 +168,12 @@ def local_variation_estimate(df, ii, cv):
     # print(f'{ii[0]}-{ii[-1]}')
     R = df.loc[df['ii'].isin(ii), 'log_return'].values  # Get corresponding logreturn from logreturn df
     V_pre = df.loc[df['ii'].isin(ii), 'V_est'].values  # Get previous variance estimation, init with np.inf
-    idxs = np.array(range(len(R))) / len(R)
+    # x = np.array(range(len(R))) / len(R)  # Half gaussian kernel, for test
+    x = np.linspace(start=-1, stop=1, num=len(ii))  # x for gaussian kernel K(x)
 
-    # Gaussian kernel on i/L and indicator function
-    gaussian_kernel = np.exp((-idxs ** 2) / 2) / (np.sqrt(2 * np.pi))
+    # Gaussian kernel on i/L and indicator function, for every observation
+    gaussian_kernel = np.exp((-x ** 2) / 2) / (np.sqrt(2 * np.pi))
+    # index function, 1 when r^2 <= cv*V_pre, 0: else, for every observation
     idx_func = list(map(lambda r, v: 1 if np.square(r) <= (cv ** 2) * v else 0, R, V_pre))
 
     # Drop the i=-1,0,1 elements, i = [-L,L]
@@ -190,13 +192,15 @@ def local_variation_estimate(df, ii, cv):
 
 def variation_estimation_single_period(daily_sample, iterate_num, cv):
     print(daily_sample.head(1).index[0])
-    daily_sample.loc[:, 'V_est'] = np.inf
-    daily_sample.loc[:, 'ii'] = range(len(daily_sample))
+    # daily_sample.loc[:, 'V_est'] = np.inf
+    daily_sample['V_est'] = np.inf
+    daily_sample['ii'] = range(len(daily_sample))
+    # daily_sample.loc[:, 'ii'] = range(len(daily_sample))
     for Z in range(iterate_num):
         print(Z)
         # print(daily_sample)
         print(f'{Z} iterations')
-        V_est = daily_sample['ii'].rolling(window=51, center=True).apply(lambda x: local_variation_estimate(
+        V_est = daily_sample['ii'].rolling(window=window_size, center=True).apply(lambda x: local_variation_estimate(
             df=daily_sample,
             ii=x,
             cv=cv))
@@ -224,7 +228,7 @@ def variation_estimation_full_period(full_sample, iterate_num, cv):
     full_sample['ii'] = range(len(full_sample))
     for Z in range(iterate_num):
         print(Z)
-        V_est = full_sample['ii'].rolling(window=51, center=True).apply(lambda x: local_variation_estimate(
+        V_est = full_sample['ii'].rolling(window=window_size, center=True).apply(lambda x: local_variation_estimate(
             df=full_sample,
             ii=x, cv=cv))
         full_sample.loc[V_est.index, 'V_est'] = V_est.values
@@ -279,14 +283,16 @@ def All_RVs_Separation(ts_df, cv=3, delta=1 / 288, alpha=0.9999, refresh_est=Fal
         # ====end test
 
         ts_vest = pd.DataFrame()
-
         ts_df_grouped = ts_df.groupby(by=ts_df.index.date, axis=0)
 
         for num, ts_df_daily in ts_df_grouped:
-            # if num == dt.date(2018,8,23):
+            # # break for test
+            # if num == dt.date(2017,7,25):
             #     break
-            v_est_daily = variation_estimation_single_period(daily_sample=ts_df_daily, iterate_num=num_iteration_lve,
+            v_est_daily = variation_estimation_single_period(daily_sample=ts_df_daily,
+                                                             iterate_num=num_iteration_lve,
                                                              cv=cv)
+
             ts_vest = pd.concat([ts_vest, v_est_daily], axis=0)
 
         # ts_vest = ts_df.groupby(by=ts_df.index.date, axis=0).apply(
@@ -381,6 +387,7 @@ def CAL_AllRVs(coin, freq, sample_num, cv, refresh, refresh_est, truncate_zero, 
     if all(if_exist) and not refresh:
         all_RVs = pd.read_csv(outdata_dir + f'{dir_name}allrvs_{freq}_{cv}_{alpha}.csv', index_col=0, parse_dates=True)
         estimation = pd.read_csv(outdata_dir + f'{dir_name}estimation_{freq}_{cv}.csv', index_col=0, parse_dates=True)
+        # TODO: adaptive to different timezone
         # all_RVs = all_RVs.tz_localize('UTC').tz_convert(timezone)
         # estimation = estimation.tz_localize('UTC').tz_convert(timezone)
         print("===Existence Check!===")
@@ -423,11 +430,13 @@ def main_test_func():
     # coin = coins[0]
     # freq = freqs[0]
     # cv = cvs[0]
+    # alpha = alphas[0]
 
     params = itertools.product(coins, freqs,alphas, cvs)
     for coin, freq,alpha, cv in params:
         print(f'{coin} at {freq}, cv={cv}, alpha={alpha}')
         try:
+            # ! REFRESH ALL ESTIMATION RESULTS
             all_RVs, estimation, logreturn = CAL_AllRVs(coin=coin,
                                                         freq=freq,
                                                         cv=cv,
@@ -441,6 +450,8 @@ def main_test_func():
         except Exception as e:
             print(e)
             continue
+
+
 
 
 """
@@ -836,7 +847,7 @@ def plot_kde(ts, bin_num, bandwidth, hist_density, var_name, cv, asset_name, fre
     # plotter = RealizedVolatilityPlot_OneAsset(return_ts=logreturn, rv=ts, asset_name=coin, ts_freq=freq)
 
     """
-    ts=None, bin_num=1000, bandwidth=None, bd_method='silverman', hist_density=True, 
+    ts=None, bin_num=1000, bandwidth=None, bd_method='silverman', hist_density=True,
     var_name='RV', cv=3, asset_name='gemini_BTC', freq='5min'
     """
 
